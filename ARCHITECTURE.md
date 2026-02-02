@@ -794,10 +794,38 @@ npm run orchestrate -- --volatility-lookback 60   # 60-minute lookback window (d
 npm run orchestrate -- --no-volatility-filter     # Disable volatility filtering
 npm run orchestrate -- --exclude-negrisk          # Exclude NegRisk markets
 npm run orchestrate -- --check-positions-only     # Only check positions, don't start
+npm run orchestrate -- --liquidate-only           # Exit positions only (safe mode)
+npm run orchestrate -- --liquidate-only --no-dry-run  # Live liquidate-only mode
 npm run orchestrate -- --auto-resume              # Enable auto-resume (24/7 mode)
 npm run orchestrate -- --enable-switching         # Enable market switching (still dry run)
 npm run orchestrate -- --enable-switching --no-dry-run  # Full live mode
 ```
+
+**Liquidate-Only Mode:**
+The orchestrator supports a special `--liquidate-only` mode for safely exiting positions without starting new trades:
+- Detects all existing positions (liquidations.json + active positions from fills-*.json)
+- Automatically queues all non-neutral positions for liquidation
+- Manages liquidations passively (profit-protected exit orders) until complete
+- Exits when all positions become neutral (no new market making started)
+
+Use cases:
+- **Before maintenance**: Safely exit all positions before system maintenance or upgrades
+- **Reduce exposure**: Wind down trading without starting new markets
+- **Overnight management**: Exit positions before market-moving events or overnight
+
+Example workflow:
+```bash
+# 1. Check what positions exist
+npm run orchestrate -- --check-positions-only
+
+# 2. Exit positions safely (dry run first)
+npm run orchestrate -- --liquidate-only
+
+# 3. If satisfied, run live
+npm run orchestrate -- --liquidate-only --no-dry-run
+```
+
+The liquidation process uses profit-protected exit orders (never sells below cost basis) and runs every 30 seconds until all positions are neutral.
 
 **Flow Diagram:**
 ```

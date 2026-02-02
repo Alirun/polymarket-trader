@@ -245,6 +245,7 @@ function printOrchestratorBanner(config: OrchestratorConfig): void {
   console.log("  Mode:");
   console.log(`    Dry Run:           ${config.dryRun ? "YES (no real orders)" : "NO (live orders)"}`);
   console.log(`    Switching:         ${config.enableSwitching ? "ENABLED" : "DISABLED (log only)"}`);
+  console.log(`    Liquidate-Only:    ${config.liquidateOnly ? "YES (exit positions only)" : "NO (normal operation)"}`);
   console.log("");
   console.log(SEPARATOR);
   console.log("");
@@ -911,6 +912,45 @@ export async function runOrchestrator(config: OrchestratorConfig): Promise<void>
     }
 
     // =========================================================================
+    // LIQUIDATE-ONLY MODE: Skip market making, only manage liquidations
+    // =========================================================================
+    if (config.liquidateOnly) {
+      if (state.liquidationMarkets.length === 0) {
+        log("\n[Orchestrator] ✓ No positions to liquidate");
+        log("[Orchestrator] Liquidate-only mode complete");
+        return;
+      }
+
+      log(`\n[Orchestrator] Liquidate-only mode: Managing ${state.liquidationMarkets.length} liquidation(s)`);
+      
+      // Start liquidation management timer (every 30 seconds)
+      log(`[Orchestrator] Starting liquidation management timer (every 30s)`);
+      
+      liqTimer = setInterval(() => {
+        if (state.running && client) {
+          manageLiquidations(client, state, config).catch((err) => {
+            log(`[Orchestrator] Liquidation management error: ${err}`);
+          });
+        }
+      }, 30_000);
+
+      // Wait loop - run liquidations until all complete
+      while (state.running && state.liquidationMarkets.length > 0) {
+        await new Promise((r) => setTimeout(r, 5_000)); // Check every 5 seconds
+        
+        // If all liquidations are complete, exit
+        if (state.liquidationMarkets.length === 0) {
+          log("\n[Orchestrator] ✓ All positions liquidated");
+          log("[Orchestrator] Liquidate-only mode complete");
+          state.running = false;
+          break;
+        }
+      }
+
+      return;
+    }
+
+    // =========================================================================
     // STARTUP: Find best active market for trading
     // =========================================================================
     setPhase(state, "startup");
@@ -1265,6 +1305,7 @@ Options:
   --auto-resume                Auto-liquidate positions without prompting (24/7 mode)
   --ignore-positions           Force new market discovery (DANGEROUS, prompts for confirmation)
   --check-positions-only       Only check and report positions, don't start
+  --liquidate-only             Only liquidate existing positions, no active market making
   
   --enable-switching           Enable automatic market switching
   --no-dry-run                 Place real orders (careful!)
@@ -1280,6 +1321,18 @@ How it works:
   6. Every N minutes, re-evaluates and switches to better markets when neutral
   7. When position limits hit, moves market to liquidation + starts new market
 
+Liquidate-Only Mode:
+  Use --liquidate-only to safely exit positions without starting new trades:
+  - Detects all existing positions (liquidations + active)
+  - Queues all positions for liquidation
+  - Manages liquidations passively until complete
+  - Exits when all positions are neutral (no new market making)
+  
+  Useful for:
+  - Safely exiting positions before maintenance
+  - Reducing exposure without active trading
+  - Overnight position management
+
 Examples:
   npm run orchestrate                          # Dry run, log switching decisions
   npm run orchestrate -- --liquidity 200       # Higher liquidity
@@ -1287,6 +1340,8 @@ Examples:
   npm run orchestrate -- --max-volatility 0.15 # Allow 15% price changes
   npm run orchestrate -- --no-volatility-filter  # Disable volatility filter
   npm run orchestrate -- --check-positions-only  # Just check for positions
+  npm run orchestrate -- --liquidate-only      # Exit positions only (safe mode)
+  npm run orchestrate -- --liquidate-only --no-dry-run  # Live liquidate-only mode
   npm run orchestrate -- --auto-resume         # Auto-resume mode (24/7)
   npm run orchestrate -- --enable-switching    # Enable switching (still dry run)
   npm run orchestrate -- --enable-switching --no-dry-run  # Full live mode

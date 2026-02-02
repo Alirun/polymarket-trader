@@ -158,6 +158,24 @@ export interface OrchestratorConfig {
   checkPositionsOnly: boolean;
 
   /**
+   * Liquidate-only mode - only manage liquidation positions without starting new market making.
+   * 
+   * When enabled, the orchestrator will:
+   * - Detect and restore existing positions (liquidations + active positions)
+   * - Queue all non-neutral positions for liquidation
+   * - Manage liquidations passively until positions become neutral
+   * - Exit when all positions are liquidated (no active market making)
+   * 
+   * This mode is useful for:
+   * - Safely exiting positions without starting new trades
+   * - Overnight position management before maintenance
+   * - Reducing exposure without active trading
+   * 
+   * @default false
+   */
+  liquidateOnly: boolean;
+
+  /**
    * Event handler for orchestrator events (logging, monitoring).
    */
   onEvent?: (event: import("./types.js").OrchestratorEvent) => void;
@@ -198,6 +216,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
   autoResume: false, // Prompt user by default
   ignorePositions: false, // Always check for positions
   checkPositionsOnly: false, // Normal operation
+  liquidateOnly: false, // Normal operation (with active market making)
 };
 
 /**
@@ -256,6 +275,7 @@ export function createOrchestratorConfig(
  * - --auto-resume: Auto-liquidate detected positions without prompting (for 24/7 mode)
  * - --ignore-positions: Force new market discovery even with open positions (dangerous)
  * - --check-positions-only: Only check and report positions, don't start
+ * - --liquidate-only: Only liquidate existing positions, no active market making
  *
  * @param args - Command-line arguments (typically process.argv.slice(2))
  * @returns Partial config with parsed values
@@ -350,6 +370,10 @@ export function parseOrchestratorArgs(args: string[]): Partial<OrchestratorConfi
 
       case "--check-positions-only":
         config.checkPositionsOnly = true;
+        break;
+
+      case "--liquidate-only":
+        config.liquidateOnly = true;
         break;
     }
   }
